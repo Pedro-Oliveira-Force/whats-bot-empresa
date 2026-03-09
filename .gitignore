@@ -1,0 +1,12 @@
+node_modules/
+tokens/
+downloads/
+
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+
+src/data/notificacoes_tickets.json
