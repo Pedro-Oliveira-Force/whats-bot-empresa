@@ -1161,9 +1161,17 @@ const path = require('path');
 
 async function salvarUsuarioVIP(numeroReal, nome, id, USUARIOS_VIP) {
     try {
-        const dadosPath = path.join(__dirname, '../data/dados.js');
+        const dadosPath = path.join(__dirname, '../data/dados.local.js');
 
         console.log(` Salvando usurio VIP: ${nome} (${numeroReal}) -> ID ${id}`);
+
+        if (!fs.existsSync(dadosPath)) {
+            fs.writeFileSync(
+                dadosPath,
+                "const USUARIOS_VIP = {};\n\nmodule.exports = USUARIOS_VIP;\n",
+                'utf8'
+            );
+        }
 
         // L o arquivo atual
         let conteudo = fs.readFileSync(dadosPath, 'utf8');
@@ -1176,7 +1184,7 @@ async function salvarUsuarioVIP(numeroReal, nome, id, USUARIOS_VIP) {
 
         // Salva o arquivo
         fs.writeFileSync(dadosPath, conteudo, 'utf8');
-        console.log(` Arquivo dados.js atualizado!`);
+        console.log(` Arquivo dados.local.js atualizado!`);
 
         //  ATUALIZA A MEMRIA TAMBM (SEM PRECISAR REINICIAR!)
         if (USUARIOS_VIP) {

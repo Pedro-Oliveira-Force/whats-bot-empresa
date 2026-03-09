@@ -2,7 +2,20 @@
 const fs = require('fs');
 const path = require('path');
 
-const USUARIOS_VIP = require('./data/dados');
+function carregarUsuariosVIP() {
+    const localPath = path.resolve(__dirname, 'data', 'dados.local.js');
+    if (fs.existsSync(localPath)) {
+        return require('./data/dados.local');
+    }
+
+    try {
+        return require('./data/dados');
+    } catch {
+        return {};
+    }
+}
+
+const USUARIOS_VIP = carregarUsuariosVIP();
 const {
     loginGLPI,
     criarTicketCompleto,
