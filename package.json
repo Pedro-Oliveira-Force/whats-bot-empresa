@@ -1,0 +1,21 @@
+{
+  "name": "whats_bot",
+  "version": "1.0.0",
+  "description": "Bot de suporte de TI no WhatsApp com integracao ao GLPI.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js && node --check src/services/glpi.js",
+    "test": "npm run check"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@wppconnect-team/wppconnect": "^1.38.0",
+    "axios": "^1.13.4",
+    "dotenv": "^17.2.3",
+    "form-data": "^4.0.5",
+    "mime-types": "^3.0.2"
+  }
+}
