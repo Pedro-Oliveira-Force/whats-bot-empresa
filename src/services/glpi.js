@@ -16,6 +16,7 @@ const CORPORATE_EMAIL_DOMAINS = String(
     .split(',')
     .map((d) => String(d || '').trim().toLowerCase())
     .filter(Boolean);
+const MAX_UPLOAD_BYTES = Math.max(1024 * 1024, Number(process.env.WHATS_MAX_MEDIA_BYTES || 10 * 1024 * 1024));
 // =================================================================
 
 const api = axios.create({
@@ -29,6 +30,40 @@ const api = axios.create({
 });
 
 let sessionTokenAtual = null;
+
+function escreverArquivoAtomico(caminhoArquivo, conteudo) {
+    const tempPath = `${caminhoArquivo}.tmp`;
+    fs.writeFileSync(tempPath, conteudo, 'utf8');
+    fs.renameSync(tempPath, caminhoArquivo);
+}
+
+function carregarUsuariosVIPPersistidos(dadosPath) {
+    if (!fs.existsSync(dadosPath)) return {};
+
+    try {
+        delete require.cache[require.resolve(dadosPath)];
+        const dadosAtuais = require(dadosPath);
+        return dadosAtuais && typeof dadosAtuais === 'object' ? { ...dadosAtuais } : {};
+    } catch {
+        return {};
+    }
+}
+
+function serializarUsuariosVIP(mapa) {
+    const linhas = Object.entries(mapa)
+        .sort(([numeroA], [numeroB]) => numeroA.localeCompare(numeroB))
+        .map(([numero, info]) => {
+            const nome = JSON.stringify(String(info?.nome || 'Usuario'));
+            const id = Number(info?.id || 0);
+            return `    "${numero}": { nome: ${nome}, id: ${id} }`;
+        });
+
+    return (
+        "const USUARIOS_VIP = {\n" +
+        (linhas.length ? `${linhas.join(',\n')}\n` : '') +
+        "};\n\nmodule.exports = USUARIOS_VIP;\n"
+    );
+}
 
 function configGLPIValida() {
     return Boolean(GLPI_URL && APP_TOKEN && USER_TOKEN);
@@ -291,6 +326,10 @@ async function criarTicketCompleto(dados, nomeSolicitante, numeroReal) {
                         // Verifica se o buffer no est vazio
                         if (buffer.length === 0) {
                             console.warn(' Anexo vazio ignorado:', anexo.name);
+                            continue;
+                        }
+                        if (buffer.length > MAX_UPLOAD_BYTES) {
+                            console.warn(' Anexo acima do limite ignorado:', anexo.name);
                             continue;
                         }
                     } catch (bufferError) {
@@ -1167,29 +1206,20 @@ async function salvarUsuarioVIP(numeroReal, nome, id, USUARIOS_VIP) {
     try {
         const dadosPath = path.join(__dirname, '../data/dados.local.js');
         const numeroSeguro = String(numeroReal || '').replace(/\D/g, '').trim();
-        const nomeSeguro = JSON.stringify(String(nome || 'Usuario'));
+        const mapaAtual = carregarUsuariosVIPPersistidos(dadosPath);
 
         console.log(` Salvando usurio VIP: ${nome} (${numeroSeguro}) -> ID ${id}`);
 
         if (!fs.existsSync(dadosPath)) {
-            fs.writeFileSync(
-                dadosPath,
-                "const USUARIOS_VIP = {};\n\nmodule.exports = USUARIOS_VIP;\n",
-                'utf8'
-            );
+            escreverArquivoAtomico(dadosPath, "const USUARIOS_VIP = {};\n\nmodule.exports = USUARIOS_VIP;\n");
         }
 
-        // L o arquivo atual
-        let conteudo = fs.readFileSync(dadosPath, 'utf8');
+        mapaAtual[numeroSeguro] = {
+            nome: String(nome || 'Usuario'),
+            id: Number(id || 0)
+        };
 
-        // Encontra a ltima linha antes de }; (usa aspas duplas para manter padro)
-        const novaLinha = `    "${numeroSeguro}": { nome: ${nomeSeguro}, id: ${id} },\n`;
-
-        // Insere antes da ltima linha };
-        conteudo = conteudo.replace(/\};?\s*\nmodule\.exports/, `${novaLinha}};\n\nmodule.exports`);
-
-        // Salva o arquivo
-        fs.writeFileSync(dadosPath, conteudo, 'utf8');
+        escreverArquivoAtomico(dadosPath, serializarUsuariosVIP(mapaAtual));
         console.log(` Arquivo dados.local.js atualizado!`);
 
         //  ATUALIZA A MEMRIA TAMBM (SEM PRECISAR REINICIAR!)

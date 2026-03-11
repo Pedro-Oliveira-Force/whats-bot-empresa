@@ -1,4 +1,5 @@
 ﻿const wppconnect = require('@wppconnect-team/wppconnect');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -33,6 +34,7 @@ const userStages = {};
 const mensagensProcessadas = new Set(); //  Impede processar mesma mensagem 2x
 const SESSION_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutos sem resposta
 const NOTIFICACAO_INTERVALO_MS = 60 * 1000;
+const MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WHATS_MAX_MEDIA_BYTES || 10 * 1024 * 1024));
 const RESET_EMAIL_WHATSAPP_COMPARTILHADO = new Set(
     String(process.env.RESET_EMAIL_WHATSAPP_COMPARTILHADO || '')
         .split(',')
@@ -110,7 +112,9 @@ function lerNotificacoes() {
 
 function salvarNotificacoes(lista) {
     try {
-        fs.writeFileSync(NOTIFICACOES_PATH, JSON.stringify(lista, null, 2), 'utf8');
+        const tempPath = `${NOTIFICACOES_PATH}.tmp`;
+        fs.writeFileSync(tempPath, JSON.stringify(lista, null, 2), 'utf8');
+        fs.renameSync(tempPath, NOTIFICACOES_PATH);
         return true;
     } catch (error) {
         console.error('Falha ao salvar notificacoes:', error.message);
@@ -160,9 +164,25 @@ function gerarCodigoConsulta(tamanho = 6) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let codigo = '';
     for (let i = 0; i < tamanho; i++) {
-        codigo += chars.charAt(Math.floor(Math.random() * chars.length));
+        codigo += chars.charAt(crypto.randomInt(chars.length));
     }
     return codigo;
+}
+
+function extrairBase64Limpo(base64) {
+    const valor = String(base64 || '');
+    return valor.includes(',') ? valor.split(',')[1] : valor;
+}
+
+function estimarBytesBase64(base64) {
+    const limpo = extrairBase64Limpo(base64).replace(/\s/g, '');
+    if (!limpo) return 0;
+    const padding = limpo.endsWith('==') ? 2 : limpo.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor((limpo.length * 3) / 4) - padding);
+}
+
+function validarTamanhoMidia(base64) {
+    return estimarBytesBase64(base64) <= MAX_MEDIA_BYTES;
 }
 
 function gerarCodigoConsultaUnico(lista) {
@@ -824,12 +844,13 @@ async function start(client) {
 
                     // Remove prefixo "data:audio/ogg;base64," se existir
                     if (base64.includes(',')) {
-                        base64 = base64.split(',')[1];
+                        base64 = extrairBase64Limpo(base64);
                     }
 
                     console.log(`Audio baixado: ${base64.length} caracteres`);
 
                     if (base64.length < 100) throw new Error("Audio vazio");
+                    if (!validarTamanhoMidia(base64)) throw new Error("Audio acima do limite");
 
                     usuario.dados.anexos.push({
                         data: base64,
@@ -840,7 +861,12 @@ async function start(client) {
                     await client.sendText(from, `Audio recebido!`);
                 } catch (e) {
                     console.error("Erro audio", e);
-                    await client.sendText(from, "Falha ao baixar audio. Tente enviar novamente.");
+                    await client.sendText(
+                        from,
+                        e.message === "Audio acima do limite"
+                            ? "O audio excede o limite permitido de 10 MB."
+                            : "Falha ao baixar audio. Tente enviar novamente."
+                    );
                 }
             } else {
                 usuario.dados.descricao = message.body;
@@ -858,12 +884,13 @@ async function start(client) {
 
                     // Remove prefixo "data:image/jpeg;base64," se existir
                     if (base64.includes(',')) {
-                        base64 = base64.split(',')[1];
+                        base64 = extrairBase64Limpo(base64);
                     }
 
                     console.log(` Foto baixada: ${base64.length} caracteres`);
 
                     if (base64.length < 100) throw new Error("Foto vazia");
+                    if (!validarTamanhoMidia(base64)) throw new Error("Foto acima do limite");
 
                     usuario.dados.anexos.push({
                         data: base64,
@@ -873,7 +900,12 @@ async function start(client) {
                     await client.sendText(from, `Foto recebida!`);
                 } catch (e) {
                     console.error("Erro foto", e);
-                    await client.sendText(from, "Falha ao baixar foto. Tente enviar novamente.");
+                    await client.sendText(
+                        from,
+                        e.message === "Foto acima do limite"
+                            ? "A foto excede o limite permitido de 10 MB."
+                            : "Falha ao baixar foto. Tente enviar novamente."
+                    );
                 }
             }
             else if (message.type === 'document') {
@@ -882,12 +914,13 @@ async function start(client) {
                     let base64 = await client.downloadMedia(message);
 
                     if (base64.includes(',')) {
-                        base64 = base64.split(',')[1];
+                        base64 = extrairBase64Limpo(base64);
                     }
 
                     console.log(`Arquivo baixado: ${base64.length} caracteres`);
 
                     if (base64.length < 100) throw new Error("Arquivo vazio");
+                    if (!validarTamanhoMidia(base64)) throw new Error("Arquivo acima do limite");
 
                     const nomeArquivoOriginal = (message.filename || '').trim();
                     const nomeArquivoSeguro = nomeArquivoOriginal
@@ -902,7 +935,12 @@ async function start(client) {
                     await client.sendText(from, `Arquivo recebido!`);
                 } catch (e) {
                     console.error("Erro arquivo", e);
-                    await client.sendText(from, "Falha ao baixar arquivo. Tente enviar novamente.");
+                    await client.sendText(
+                        from,
+                        e.message === "Arquivo acima do limite"
+                            ? "O arquivo excede o limite permitido de 10 MB."
+                            : "Falha ao baixar arquivo. Tente enviar novamente."
+                    );
                 }
             }
             
